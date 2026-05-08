@@ -96,7 +96,7 @@ def fetch_market_data(symbol, tf):
         df.index = df.index.tz_convert('UTC').tz_localize(None) 
         return df[['open', 'high', 'low', 'close']]
 
-# NEW: BATCHED AI FUNCTION
+# NEW: BATCHED AI FUNCTION (With Strict JSON Enforcement)
 @st.cache_data(ttl=3600)
 def get_batched_ai_sentiment(symbols_tuple):
     if not symbols_tuple:
@@ -104,49 +104,43 @@ def get_batched_ai_sentiment(symbols_tuple):
         
     try:
         today = datetime.datetime.today().strftime('%Y-%m-%d')
-        yesterday = (datetime.datetime.today() - timedelta(days=3)).strftime('%Y-%m-%d')
+        # Expanded to 5 days to ensure we always find news, even over weekends
+        past = (datetime.datetime.today() - timedelta(days=5)).strftime('%Y-%m-%d')
         
-        # 1. Gather all news into a single dictionary
+        # 1. Gather all news
         master_news_dict = {}
         for symbol in symbols_tuple:
-            url = f"https://finnhub.io/api/v1/company-news?symbol={symbol}&from={yesterday}&to={today}&token={st.secrets['FINNHUB_API_KEY']}"
+            url = f"https://finnhub.io/api/v1/company-news?symbol={symbol}&from={past}&to={today}&token={st.secrets['FINNHUB_API_KEY']}"
             news_data = requests.get(url).json()
             if news_data:
-                headlines = [article['headline'] for article in news_data[:5]] # Top 5 per stock
+                headlines = [article['headline'] for article in news_data[:5]]
                 master_news_dict[symbol] = headlines
             else:
                 master_news_dict[symbol] = ["No recent news found."]
 
         # 2. Build the Mega-Prompt
         prompt = f"""
-        You are an expert Wall Street quantitative analyst. I will provide a dictionary of stock tickers and their recent news headlines.
-        
-        News Dictionary:
+        Analyze the sentiment for EACH stock based on these headlines:
         {master_news_dict}
         
-        Analyze the sentiment for EACH stock. You MUST respond with ONLY a raw, valid JSON object. Do not use markdown blocks (like ```json). Do not add any introductory text. 
-        Format your JSON exactly like this:
-        {{
-            "TICKER": {{"sentiment": "BULLISH", "summary": "1 sentence explanation."}},
-            "TICKER2": {{"sentiment": "BEARISH", "summary": "1 sentence explanation."}}
-        }}
+        Format your response as a JSON dictionary where the keys are the stock tickers, and the values are objects with "sentiment" (BULLISH, BEARISH, or NEUTRAL) and "summary" (1 strict sentence explanation).
         """
         
-        # 3. Make exactly ONE request to Gemini
-        response = ai_model.generate_content(prompt)
+        # 3. Request Strict JSON directly from the API
+        response = ai_model.generate_content(
+            prompt,
+            generation_config={"response_mime_type": "application/json"}
+        )
         
-        # 4. Clean and parse the JSON
-        clean_text = response.text.strip()
-        if clean_text.startswith("```json"):
-            clean_text = clean_text[7:]
-        if clean_text.endswith("```"):
-            clean_text = clean_text[:-3]
-            
-        return json.loads(clean_text.strip())
+        # 4. Parse effortlessly
+        return json.loads(response.text)
         
     except Exception as e:
-        print(f"AI Batch Error: {e}")
-        return {} # Return empty dict if AI fails so the charts still load safely
+        # If it fails now, it will actually tell us WHY on the dashboard instead of hiding it!
+        error_dict = {}
+        for sym in symbols_tuple:
+            error_dict[sym] = {"sentiment": "ERROR", "summary": f"Debug Info: {str(e)}"}
+        return error_dict
 
 # --- PRE-COMPUTE AI SENTIMENT ---
 # We pass the list as a tuple so Streamlit can cache it properly
