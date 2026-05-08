@@ -2,6 +2,7 @@ streamlit
 azure-cosmos
 pandas
 plotly
-google-generativeai
 requests
 yfinance
+google-generativeai
+groq
