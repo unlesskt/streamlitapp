@@ -6,8 +6,9 @@ import datetime
 from datetime import timedelta
 import requests
 import google.generativeai as genai
+from groq import Groq
 import yfinance as yf
-import json # NEW: Required for parsing the batched AI response
+import json
 
 # 1. Page Configuration
 st.set_page_config(page_title="Quant & AI Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -15,19 +16,23 @@ st.set_page_config(page_title="Quant & AI Terminal", layout="wide", initial_side
 # --- INITIALIZE CONNECTIONS ---
 @st.cache_resource
 def init_connections():
+    # 1. Cosmos DB
     cosmos_client = CosmosClient.from_connection_string(st.secrets["COSMOS_CONNECTION_STRING"])
     database = cosmos_client.get_database_client("FinancialData")
     container = database.get_container_client("StockTicks")
     
+    # 2. Google Gemini (Primary AI)
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    # We use Flash here. Because we batch everything into 1 request, 
-    # it runs instantly and never hits the 5 RPM limit!
-    ai_model = genai.GenerativeModel('gemini-2.5-flash') 
+    gemini_model = genai.GenerativeModel('gemini-2.5-flash') 
     
-    return container, ai_model
+    # 3. Groq / Llama 3 (Failover AI)
+    groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+    
+    return container, gemini_model, groq_client
 
-container, ai_model = init_connections()
+container, gemini_model, groq_client = init_connections()
 
+# The Watchlist
 COMPANY_NAMES = {
     "AAPL": "Apple Inc.", "MSFT": "Microsoft Corp.", "GOOGL": "Alphabet Inc.",
     "AMZN": "Amazon.com Inc.", "NVDA": "NVIDIA Corp.", "META": "Meta Platforms Inc.",
@@ -73,7 +78,7 @@ if st.sidebar.button("Refresh Terminal Data"):
 st.title("Multi-Source Quant & AI Sentiment Terminal")
 st.markdown("---")
 
-# --- DATA FETCHING & AI FUNCTIONS ---
+# --- DATA FETCHING FUNCTIONS ---
 @st.cache_data(ttl=60)
 def fetch_market_data(symbol, tf): 
     if tf == "Live Ticks (Cosmos DB)":
@@ -96,18 +101,17 @@ def fetch_market_data(symbol, tf):
         df.index = df.index.tz_convert('UTC').tz_localize(None) 
         return df[['open', 'high', 'low', 'close']]
 
-# NEW: BATCHED AI FUNCTION (With Strict JSON Enforcement)
+# --- HYBRID AI FUNCTION (GOOGLE -> GROQ FAILOVER) ---
 @st.cache_data(ttl=3600)
 def get_batched_ai_sentiment(symbols_tuple):
     if not symbols_tuple:
         return {}
         
     try:
+        # 1. Gather all news
         today = datetime.datetime.today().strftime('%Y-%m-%d')
-        # Expanded to 5 days to ensure we always find news, even over weekends
         past = (datetime.datetime.today() - timedelta(days=5)).strftime('%Y-%m-%d')
         
-        # 1. Gather all news
         master_news_dict = {}
         for symbol in symbols_tuple:
             url = f"https://finnhub.io/api/v1/company-news?symbol={symbol}&from={past}&to={today}&token={st.secrets['FINNHUB_API_KEY']}"
@@ -118,7 +122,7 @@ def get_batched_ai_sentiment(symbols_tuple):
             else:
                 master_news_dict[symbol] = ["No recent news found."]
 
-        # 2. Build the Mega-Prompt
+        # 2. Build the Master Prompt
         prompt = f"""
         Analyze the sentiment for EACH stock based on these headlines:
         {master_news_dict}
@@ -126,25 +130,47 @@ def get_batched_ai_sentiment(symbols_tuple):
         Format your response as a JSON dictionary where the keys are the stock tickers, and the values are objects with "sentiment" (BULLISH, BEARISH, or NEUTRAL) and "summary" (1 strict sentence explanation).
         """
         
-        # 3. Request Strict JSON directly from the API
-        response = ai_model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
-        )
-        
-        # 4. Parse effortlessly
-        return json.loads(response.text)
-        
+        # 3. ATTEMPT 1: Google Gemini API
+        try:
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            data = json.loads(response.text)
+            
+            # Tag the output so we know who answered!
+            for sym in data:
+                data[sym]["summary"] = f"[Via Google] {data[sym].get('summary', '')}"
+            return data
+            
+        except Exception as google_error:
+            # 4. FAILOVER: If Google throws 429 Quota Exceeded, seamlessly route to Groq
+            print(f"Google API Failed ({google_error}). Falling back to Groq Llama 3...")
+            
+            chat_completion = groq_client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": "You are a quantitative analyst. You output strict JSON only."},
+                    {"role": "user", "content": prompt}
+                ],
+                model="llama3-8b-8192", 
+                response_format={"type": "json_object"},
+            )
+            
+            data = json.loads(chat_completion.choices[0].message.content)
+            
+            # Tag the output so we know who answered!
+            for sym in data:
+                data[sym]["summary"] = f"[Via Groq] {data[sym].get('summary', '')}"
+            return data
+
     except Exception as e:
-        # If it fails now, it will actually tell us WHY on the dashboard instead of hiding it!
+        # Total System Failure
         error_dict = {}
         for sym in symbols_tuple:
-            error_dict[sym] = {"sentiment": "ERROR", "summary": f"Debug Info: {str(e)}"}
+            error_dict[sym] = {"sentiment": "ERROR", "summary": f"Total AI Failure: {str(e)}"}
         return error_dict
 
-
-# --- PRE-COMPUTE AI SENTIMENT ---
-# We pass the list as a tuple so Streamlit can cache it properly
+# Pre-compute AI Sentiment
 batched_sentiments = get_batched_ai_sentiment(tuple(selected_tickers))
 
 # --- BUILD THE DASHBOARD GRID ---
@@ -184,8 +210,7 @@ if selected_tickers:
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # --- NEW: PULL PRE-COMPUTED AI SENTIMENT ---
-                # Safely get the data from the dictionary we built earlier
+                # --- PULL PRE-COMPUTED AI SENTIMENT ---
                 stock_data = batched_sentiments.get(ticker, {"sentiment": "NEUTRAL", "summary": "AI data currently unavailable."})
                 sentiment = stock_data.get("sentiment", "NEUTRAL")
                 summary = stock_data.get("summary", "")
