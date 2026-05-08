@@ -77,15 +77,17 @@ selected_delta = time_deltas[time_filter]
 
 # Fetch data with the time filter applied
 @st.cache_data(ttl=60)
+# Fetch data with the time filter applied
+@st.cache_data(ttl=60)
 def load_data(symbol, time_range_str): 
-    # We pass time_range_str just to force the cache to update when the radio button changes
     delta = time_deltas[time_range_str]
     
     if delta:
         cutoff_time = (datetime.datetime.utcnow() - delta).isoformat()
         query = f"SELECT * FROM c WHERE c.ticker = '{symbol}' AND c.timestamp >= '{cutoff_time}' ORDER BY c.timestamp DESC"
     else:
-        query = f"SELECT * FROM c WHERE c.ticker = '{symbol}' ORDER BY c.timestamp DESC LIMIT 1000"
+        # Fix: Cosmos DB strictly requires OFFSET 0 before LIMIT
+        query = f"SELECT * FROM c WHERE c.ticker = '{symbol}' ORDER BY c.timestamp DESC OFFSET 0 LIMIT 1000"
         
     return list(container.query_items(query=query, enable_cross_partition_query=True))
 
