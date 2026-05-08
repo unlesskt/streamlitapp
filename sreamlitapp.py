@@ -184,11 +184,27 @@ if selected_tickers:
             df = fetch_market_data(ticker, timeframe)
             
             if not df.empty:
+                # --- RESTORED: TOP KPI METRICS ---
+                latest = df.iloc[-1]
+                delta_val = None
+                if len(df) > 1:
+                    prev = df.iloc[-2]
+                    delta_val = latest['close'] - prev['close']
+                    
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Current Price", f"${latest['close']:.2f}", f"{delta_val:.2f}" if delta_val else None)
+                m2.metric("High", f"${latest['high']:.2f}")
+                m3.metric("Low", f"${latest['low']:.2f}")
+                
+                st.markdown("<br>", unsafe_allow_html=True) # Adds a little breathing room
+
+                # --- STATISTICAL MATH ---
                 df['SMA_BB'] = df['close'].rolling(window=bb_window).mean()
                 df['STD_BB'] = df['close'].rolling(window=bb_window).std()
                 df['Upper_Band'] = df['SMA_BB'] + (df['STD_BB'] * bb_std)
                 df['Lower_Band'] = df['SMA_BB'] - (df['STD_BB'] * bb_std)
 
+                # --- DRAW THE CHART ---
                 fig = go.Figure()
                 fig.add_trace(go.Candlestick(
                     x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'],
@@ -210,7 +226,7 @@ if selected_tickers:
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # --- PULL PRE-COMPUTED AI SENTIMENT ---
+                # --- AI SENTIMENT ---
                 stock_data = batched_sentiments.get(ticker, {"sentiment": "NEUTRAL", "summary": "AI data currently unavailable."})
                 sentiment = stock_data.get("sentiment", "NEUTRAL")
                 summary = stock_data.get("summary", "")
