@@ -142,6 +142,7 @@ def get_batched_ai_sentiment(symbols_tuple):
             error_dict[sym] = {"sentiment": "ERROR", "summary": f"Debug Info: {str(e)}"}
         return error_dict
 
+
 # --- PRE-COMPUTE AI SENTIMENT ---
 # We pass the list as a tuple so Streamlit can cache it properly
 batched_sentiments = get_batched_ai_sentiment(tuple(selected_tickers))
