@@ -7,6 +7,7 @@ from datetime import timedelta
 import requests
 import google.generativeai as genai
 import yfinance as yf
+import json # NEW: Required for parsing the batched AI response
 
 # 1. Page Configuration
 st.set_page_config(page_title="Quant & AI Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -14,22 +15,19 @@ st.set_page_config(page_title="Quant & AI Terminal", layout="wide", initial_side
 # --- INITIALIZE CONNECTIONS ---
 @st.cache_resource
 def init_connections():
-    # Cosmos DB (For Live Ticks)
     cosmos_client = CosmosClient.from_connection_string(st.secrets["COSMOS_CONNECTION_STRING"])
     database = cosmos_client.get_database_client("FinancialData")
     container = database.get_container_client("StockTicks")
     
-    # Google Gemini 2.5 Pro (For Advanced Sentiment)
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    #ai_model = genai.GenerativeModel('gemini-2.5-pro')
-    # Use the Flash model for high-speed, high-limit dashboard loops
-    ai_model = genai.GenerativeModel('gemini-2.5-flash')
+    # We use Flash here. Because we batch everything into 1 request, 
+    # it runs instantly and never hits the 5 RPM limit!
+    ai_model = genai.GenerativeModel('gemini-2.5-flash') 
     
     return container, ai_model
 
 container, ai_model = init_connections()
 
-# The 40-Stock Watchlist
 COMPANY_NAMES = {
     "AAPL": "Apple Inc.", "MSFT": "Microsoft Corp.", "GOOGL": "Alphabet Inc.",
     "AMZN": "Amazon.com Inc.", "NVDA": "NVIDIA Corp.", "META": "Meta Platforms Inc.",
@@ -56,7 +54,7 @@ timeframe = st.sidebar.radio("Timeframe (Candle Size)", ("Live Ticks (Cosmos DB)
 analysis_mode = st.sidebar.selectbox("Statistical Overlay", ("None", "Trend (Moving Averages)", "Anomaly Detection (Bollinger Bands)"))
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### Graph Parameters")
+st.sidebar.markdown("### 🎛️ Graph Parameters")
 
 with st.sidebar.expander("Trend Settings", expanded=(analysis_mode == "Trend (Moving Averages)")):
     fast_ma = st.slider("Fast Moving Average", min_value=5, max_value=50, value=20, step=1)
@@ -98,37 +96,61 @@ def fetch_market_data(symbol, tf):
         df.index = df.index.tz_convert('UTC').tz_localize(None) 
         return df[['open', 'high', 'low', 'close']]
 
+# NEW: BATCHED AI FUNCTION
 @st.cache_data(ttl=3600)
-def get_ai_sentiment(symbol):
+def get_batched_ai_sentiment(symbols_tuple):
+    if not symbols_tuple:
+        return {}
+        
     try:
         today = datetime.datetime.today().strftime('%Y-%m-%d')
         yesterday = (datetime.datetime.today() - timedelta(days=3)).strftime('%Y-%m-%d')
-        url = f"https://finnhub.io/api/v1/company-news?symbol={symbol}&from={yesterday}&to={today}&token={st.secrets['FINNHUB_API_KEY']}"
-        news_data = requests.get(url).json()
         
-        if not news_data:
-            return "NEUTRAL", "Not enough recent news to determine sentiment."
-            
-        headlines = [article['headline'] for article in news_data[:8]]
-        headlines_text = "\n".join(headlines)
-        
+        # 1. Gather all news into a single dictionary
+        master_news_dict = {}
+        for symbol in symbols_tuple:
+            url = f"https://finnhub.io/api/v1/company-news?symbol={symbol}&from={yesterday}&to={today}&token={st.secrets['FINNHUB_API_KEY']}"
+            news_data = requests.get(url).json()
+            if news_data:
+                headlines = [article['headline'] for article in news_data[:5]] # Top 5 per stock
+                master_news_dict[symbol] = headlines
+            else:
+                master_news_dict[symbol] = ["No recent news found."]
+
+        # 2. Build the Mega-Prompt
         prompt = f"""
-        You are an expert Wall Street quantitative analyst. Analyze these recent news headlines for {symbol}:
-        {headlines_text}
+        You are an expert Wall Street quantitative analyst. I will provide a dictionary of stock tickers and their recent news headlines.
         
-        Based ONLY on these headlines, reply with exactly two lines:
-        Line 1: The overall market sentiment (Respond with exactly one word: BULLISH, BEARISH, or NEUTRAL).
-        Line 2: A strict 1-sentence summary of WHY the market feels this way.
+        News Dictionary:
+        {master_news_dict}
+        
+        Analyze the sentiment for EACH stock. You MUST respond with ONLY a raw, valid JSON object. Do not use markdown blocks (like ```json). Do not add any introductory text. 
+        Format your JSON exactly like this:
+        {{
+            "TICKER": {{"sentiment": "BULLISH", "summary": "1 sentence explanation."}},
+            "TICKER2": {{"sentiment": "BEARISH", "summary": "1 sentence explanation."}}
+        }}
         """
-        response = ai_model.generate_content(prompt)
-        lines = response.text.strip().split('\n')
         
-        sentiment_label = lines[0].replace("Line 1:", "").strip().upper()
-        summary_text = lines[-1].replace("Line 2:", "").strip()
-        return sentiment_label, summary_text
+        # 3. Make exactly ONE request to Gemini
+        response = ai_model.generate_content(prompt)
+        
+        # 4. Clean and parse the JSON
+        clean_text = response.text.strip()
+        if clean_text.startswith("```json"):
+            clean_text = clean_text[7:]
+        if clean_text.endswith("```"):
+            clean_text = clean_text[:-3]
+            
+        return json.loads(clean_text.strip())
         
     except Exception as e:
-        return "ERROR", f"Failed to fetch AI analysis: {str(e)}"
+        print(f"AI Batch Error: {e}")
+        return {} # Return empty dict if AI fails so the charts still load safely
+
+# --- PRE-COMPUTE AI SENTIMENT ---
+# We pass the list as a tuple so Streamlit can cache it properly
+batched_sentiments = get_batched_ai_sentiment(tuple(selected_tickers))
 
 # --- BUILD THE DASHBOARD GRID ---
 if selected_tickers:
@@ -141,20 +163,17 @@ if selected_tickers:
             df = fetch_market_data(ticker, timeframe)
             
             if not df.empty:
-                # Bollinger Bands Math
                 df['SMA_BB'] = df['close'].rolling(window=bb_window).mean()
                 df['STD_BB'] = df['close'].rolling(window=bb_window).std()
                 df['Upper_Band'] = df['SMA_BB'] + (df['STD_BB'] * bb_std)
                 df['Lower_Band'] = df['SMA_BB'] - (df['STD_BB'] * bb_std)
 
-                # Draw Base Chart
                 fig = go.Figure()
                 fig.add_trace(go.Candlestick(
                     x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'],
                     name="Price", increasing_line_color='#26a69a', decreasing_line_color='#ef5350'
                 ))
 
-                # Add Selected Overlays
                 if analysis_mode == "Trend (Moving Averages)":
                     df['SMA_Fast'] = df['close'].rolling(window=fast_ma).mean()
                     df['SMA_Slow'] = df['close'].rolling(window=slow_ma).mean()
@@ -170,11 +189,15 @@ if selected_tickers:
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # AI Sentiment Module
-                sentiment, summary = get_ai_sentiment(ticker)
-                if "BULLISH" in sentiment:
+                # --- NEW: PULL PRE-COMPUTED AI SENTIMENT ---
+                # Safely get the data from the dictionary we built earlier
+                stock_data = batched_sentiments.get(ticker, {"sentiment": "NEUTRAL", "summary": "AI data currently unavailable."})
+                sentiment = stock_data.get("sentiment", "NEUTRAL")
+                summary = stock_data.get("summary", "")
+                
+                if "BULLISH" in sentiment.upper():
                     st.success(f"**🤖 AI: {sentiment}** — {summary}")
-                elif "BEARISH" in sentiment:
+                elif "BEARISH" in sentiment.upper():
                     st.error(f"**🤖 AI: {sentiment}** — {summary}")
                 else:
                     st.info(f"**🤖 AI: {sentiment}** — {summary}")
