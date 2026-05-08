@@ -21,7 +21,9 @@ def init_connections():
     
     # Google Gemini 2.5 Pro (For Advanced Sentiment)
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    ai_model = genai.GenerativeModel('gemini-2.5-pro') 
+    #ai_model = genai.GenerativeModel('gemini-2.5-pro')
+    # Use the Flash model for high-speed, high-limit dashboard loops
+    ai_model = genai.GenerativeModel('gemini-1.5-flash')
     
     return container, ai_model
 
