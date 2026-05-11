@@ -5,4 +5,4 @@ plotly
 requests
 yfinance
 google-generativeai
-groq
+openai
