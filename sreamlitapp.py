@@ -280,43 +280,75 @@ st.markdown(header_html, unsafe_allow_html=True)
 # ─────────────────────────────────────────────
 # 4. COMMAND BAR
 # ─────────────────────────────────────────────
-ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4 = st.columns([3, 2, 2, 1])
 
-with ctrl_col1:
-    selected_tickers = st.multiselect(
-        "Active Symbols",
-        sorted(COMPANY_NAMES.keys()),
-        default=["NVDA", "TSLA"]
-    )
-with ctrl_col2:
+# CSS: constrain multiselect dropdown height and clip overflow tags
+st.markdown("""
+<style>
+    /* Keep selected tags on one line with scroll — prevents vertical explosion */
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div:first-child {
+        max-height: 42px !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        flex-wrap: nowrap !important;
+    }
+    /* Limit tag count overflow gracefully */
+    [data-testid="stMultiSelect"] [data-baseweb="tag"] {
+        max-width: 80px !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+    /* Ensure expander never overlaps widgets above it */
+    [data-testid="stExpander"] {
+        margin-top: 0.5rem !important;
+        clear: both !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Row 1: Symbol picker (full width)
+selected_tickers = st.multiselect(
+    "ACTIVE SYMBOLS  —  select up to 6 for best layout",
+    sorted(COMPANY_NAMES.keys()),
+    default=["NVDA", "TSLA"],
+    max_selections=6,
+)
+
+# Row 2: Resolution | Overlay | Refresh
+row2_col1, row2_col2, row2_col3, row2_col4 = st.columns([2, 2, 2, 1])
+with row2_col1:
     timeframe = st.selectbox(
         "Resolution",
         ["Intraday (15m)", "Daily (1D)", "Weekly (1W)", "Raw Ticks (Cosmos DB)"],
         index=1
     )
-with ctrl_col3:
+with row2_col2:
     analysis_mode = st.selectbox(
         "Overlay",
         ["None", "Moving Averages", "Bollinger Bands"]
     )
-with ctrl_col4:
-    st.write("")
+with row2_col3:
+    chart_height = st.select_slider(
+        "Chart Height",
+        options=[300, 350, 400, 450, 500, 550, 600],
+        value=450
+    )
+with row2_col4:
+    st.markdown("<div style='padding-top:1.6rem;'></div>", unsafe_allow_html=True)
     if st.button("↺ Refresh", use_container_width=True):
         st.rerun()
 
-# ── Parameters panel ──────────────────────────
-with st.expander("⚙  Parameters & Tuning"):
-    param_col1, param_col2, param_col3 = st.columns(3)
+# Row 3: Collapsed advanced params
+with st.expander("⚙  Advanced Parameters"):
+    param_col1, param_col2 = st.columns(2)
     with param_col1:
         fast_ma = st.number_input("Fast MA Period", value=20)
         slow_ma = st.number_input("Slow MA Period", value=50)
     with param_col2:
         bb_window = st.number_input("Bollinger Window", value=20)
-        bb_std = st.number_input("Bollinger Std Dev", value=2.0, step=0.5)
-    with param_col3:
-        chart_height = st.slider("Viewport Height (px)", 300, 800, 450)
+        bb_std    = st.number_input("Bollinger Std Dev", value=2.0, step=0.5)
 
-st.markdown("<div style='margin-bottom: 0.8rem'></div>", unsafe_allow_html=True)
+st.markdown("<div style='margin-bottom:0.8rem'></div>", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
@@ -505,7 +537,8 @@ if not selected_tickers:
         unsafe_allow_html=True
     )
 else:
-    cols = st.columns(2)
+    n_cols = 1 if len(selected_tickers) == 1 else 2
+    cols = st.columns(n_cols)
 
     for index, ticker in enumerate(selected_tickers):
         with cols[index % 2]:
