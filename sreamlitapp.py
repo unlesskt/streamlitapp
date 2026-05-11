@@ -411,17 +411,18 @@ def _macro_row_html(name, price, change, invert=False):
     </div>
     """
 
-sp_html   = _macro_row_html("S&P 500",  macro_data['S&P 500']['price'],  macro_data['S&P 500']['change'])
-nas_html  = _macro_row_html("NASDAQ",   macro_data['NASDAQ']['price'],   macro_data['NASDAQ']['change'])
-vix_html  = _macro_row_html("VIX  ●FEAR", macro_data['VIX']['price'],   macro_data['VIX']['change'], invert=True)
-dow_html  = _macro_row_html("DOW JONES", macro_data['DOW']['price'],     macro_data['DOW']['change'])
+sp_html   = _macro_row_html("S&P 500",    macro_data['S&P 500']['price'], macro_data['S&P 500']['change'])
+nas_html  = _macro_row_html("NASDAQ",     macro_data['NASDAQ']['price'],  macro_data['NASDAQ']['change'])
+vix_html  = _macro_row_html("VIX ●FEAR", macro_data['VIX']['price'],     macro_data['VIX']['change'], invert=True)
+dow_html  = _macro_row_html("DOW JONES", macro_data['DOW']['price'],      macro_data['DOW']['change'])
 
-st.markdown(f"""
-<div style="display: flex; gap: 12px; margin-bottom: 0.8rem;">
-    {sp_html}{nas_html}{dow_html}{vix_html}
-</div>
-<div style="height: 1px; background: #1e2530; margin-bottom: 0.9rem;"></div>
-""", unsafe_allow_html=True)
+macro_band_html = (
+    '<div style="display: flex; gap: 12px; margin-bottom: 0.8rem;">'
+    + sp_html + nas_html + dow_html + vix_html
+    + '</div>'
+    + '<div style="height: 1px; background: #1e2530; margin-bottom: 0.9rem;"></div>'
+)
+st.markdown(macro_band_html, unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
@@ -724,27 +725,17 @@ else:
                 summary    = stock_data.get("summary", "")
 
                 badge_html = sentiment_badge(sentiment)
-                st.markdown(f"""
-                <div style="
-                    display: flex;
-                    align-items: flex-start;
-                    gap: 0.8rem;
-                    background: #0d1117;
-                    border: 1px solid #1e2530;
-                    border-top: none;
-                    padding: 0.55rem 0.9rem;
-                    margin-bottom: 1.2rem;
-                ">
-                    {badge_html}
-                    <span style="
-                        font-family: 'IBM Plex Mono', monospace;
-                        font-size: 11px;
-                        color: #5a6a7a;
-                        line-height: 1.5;
-                        margin-top: 2px;
-                    ">{summary}</span>
-                </div>
-                """, unsafe_allow_html=True)
+                footer_html = (
+                    '<div style="display:flex;align-items:flex-start;gap:0.8rem;'
+                    'background:#0d1117;border:1px solid #1e2530;border-top:none;'
+                    'padding:0.55rem 0.9rem;margin-bottom:1.2rem;">'
+                    + badge_html
+                    + '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;'
+                    'color:#5a6a7a;line-height:1.5;margin-top:2px;">'
+                    + summary
+                    + '</span></div>'
+                )
+                st.markdown(footer_html, unsafe_allow_html=True)
 
             else:
                 st.markdown(f"""
