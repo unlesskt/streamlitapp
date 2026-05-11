@@ -258,54 +258,23 @@ COMPANY_NAMES = {
 # ─────────────────────────────────────────────
 now = datetime.datetime.utcnow()
 session_id = f"SES-{now.strftime('%y%m%d%H%M')}"
+utc_str    = now.strftime('%Y-%m-%d&nbsp;&nbsp;%H:%M:%S')
 
-st.markdown(f"""
-<div style="
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.6rem 0 0.5rem 0;
-    border-bottom: 1px solid #1e2530;
-    margin-bottom: 0.8rem;
-">
-    <div style="display: flex; align-items: center; gap: 1rem;">
-        <span style="
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 13px;
-            font-weight: 600;
-            color: #00d4aa;
-            letter-spacing: 0.18em;
-        ">▣ QT TERMINAL</span>
-        <span style="
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 10px;
-            color: #1e2530;
-        ">│</span>
-        <span style="
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 10px;
-            color: #5a6a7a;
-            letter-spacing: 0.08em;
-        ">QUANTITATIVE ANALYSIS PLATFORM v2.0</span>
-    </div>
-    <div style="display: flex; align-items: center; gap: 1.5rem;">
-        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #5a6a7a;">
-            SESSION <span style="color: #00d4aa;">{session_id}</span>
-        </span>
-        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #5a6a7a;">
-            UTC <span style="color: #c8d4e0;">{now.strftime('%Y-%m-%d  %H:%M:%S')}</span>
-        </span>
-        <span style="
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 9px;
-            color: #00c896;
-            letter-spacing: 0.1em;
-            border: 1px solid #00c896;
-            padding: 2px 8px;
-        ">● LIVE</span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+header_html = (
+    '<div style="display:flex;justify-content:space-between;align-items:center;'
+    'padding:0.6rem 0 0.5rem 0;border-bottom:1px solid #1e2530;margin-bottom:0.8rem;">'
+    '<div style="display:flex;align-items:center;gap:1rem;">'
+    '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:13px;font-weight:600;color:#00d4aa;letter-spacing:0.18em;">&#9632; QT TERMINAL</span>'
+    '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:#1e2530;">|</span>'
+    '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:#5a6a7a;letter-spacing:0.08em;">QUANTITATIVE ANALYSIS PLATFORM v2.0</span>'
+    '</div>'
+    '<div style="display:flex;align-items:center;gap:1.5rem;">'
+    f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:#5a6a7a;">SESSION <span style="color:#00d4aa;">{session_id}</span></span>'
+    f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:#5a6a7a;">UTC <span style="color:#c8d4e0;">{utc_str}</span></span>'
+    '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:9px;color:#00c896;letter-spacing:0.1em;border:1px solid #00c896;padding:2px 8px;">&#9679; LIVE</span>'
+    '</div></div>'
+)
+st.markdown(header_html, unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
@@ -371,45 +340,23 @@ def fetch_macro_indices():
 macro_data = fetch_macro_indices()
 
 def _macro_row_html(name, price, change, invert=False):
-    """Renders a compact macro index tile."""
+    """Renders a compact macro index tile as a single-line HTML string."""
     positive = change >= 0
     if invert:
         positive = not positive
-    color   = "#00c896" if positive else "#ff4d6a"
-    sign    = "+" if change >= 0 else ""
-    arrow   = "▲" if change >= 0 else "▼"
-    return f"""
-    <div style="
-        background: #10141a;
-        border: 1px solid #1e2530;
-        padding: 0.7rem 1rem;
-        flex: 1;
-    ">
-        <div style="
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 9px;
-            letter-spacing: 0.12em;
-            color: #5a6a7a;
-            margin-bottom: 4px;
-            text-transform: uppercase;
-        ">{name}</div>
-        <div style="display: flex; align-items: baseline; gap: 0.6rem;">
-            <span style="
-                font-family: 'IBM Plex Mono', monospace;
-                font-size: 18px;
-                font-weight: 600;
-                color: #c8d4e0;
-                letter-spacing: -0.02em;
-            ">{price:,.2f}</span>
-            <span style="
-                font-family: 'IBM Plex Mono', monospace;
-                font-size: 11px;
-                font-weight: 500;
-                color: {color};
-            ">{arrow} {sign}{change:.2f}%</span>
-        </div>
-    </div>
-    """
+    color  = "#00c896" if positive else "#ff4d6a"
+    sign   = "+" if change >= 0 else ""
+    arrow  = "&#9650;" if change >= 0 else "&#9660;"  # ▲ ▼ as HTML entities
+    price_fmt  = f"{price:,.2f}"
+    change_fmt = f"{sign}{change:.2f}%"
+    return (
+        '<div style="background:#10141a;border:1px solid #1e2530;padding:0.7rem 1rem;flex:1;">'
+        f'<div style="font-family:\'IBM Plex Mono\',monospace;font-size:9px;letter-spacing:0.12em;color:#5a6a7a;margin-bottom:4px;text-transform:uppercase;">{name}</div>'
+        '<div style="display:flex;align-items:baseline;gap:0.6rem;">'
+        f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:18px;font-weight:600;color:#c8d4e0;letter-spacing:-0.02em;">{price_fmt}</span>'
+        f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;font-weight:500;color:{color};">{arrow} {change_fmt}</span>'
+        '</div></div>'
+    )
 
 sp_html   = _macro_row_html("S&P 500",    macro_data['S&P 500']['price'], macro_data['S&P 500']['change'])
 nas_html  = _macro_row_html("NASDAQ",     macro_data['NASDAQ']['price'],  macro_data['NASDAQ']['change'])
@@ -537,37 +484,26 @@ CHART_LAYOUT = dict(
 # ─────────────────────────────────────────────
 def sentiment_badge(sentiment):
     cfg = {
-        "BULLISH":  ("▲ BULLISH",  "#00c896", "rgba(0,200,150,0.12)",  "1px solid rgba(0,200,150,0.4)"),
-        "BEARISH":  ("▼ BEARISH",  "#ff4d6a", "rgba(255,77,106,0.12)", "1px solid rgba(255,77,106,0.4)"),
-        "NEUTRAL":  ("◆ NEUTRAL",  "#f5a623", "rgba(245,166,35,0.10)", "1px solid rgba(245,166,35,0.4)"),
+        "BULLISH": ("&#9650; BULLISH", "#00c896", "rgba(0,200,150,0.12)",  "1px solid rgba(0,200,150,0.4)"),
+        "BEARISH": ("&#9660; BEARISH", "#ff4d6a", "rgba(255,77,106,0.12)", "1px solid rgba(255,77,106,0.4)"),
+        "NEUTRAL": ("&#9670; NEUTRAL", "#f5a623", "rgba(245,166,35,0.10)", "1px solid rgba(245,166,35,0.4)"),
     }
     label, color, bg, border = cfg.get(sentiment.upper(), cfg["NEUTRAL"])
-    return f"""<span style="
-        font-family: 'IBM Plex Mono', monospace;
-        font-size: 10px;
-        font-weight: 600;
-        letter-spacing: 0.12em;
-        color: {color};
-        background: {bg};
-        border: {border};
-        padding: 3px 10px;
-    ">{label}</span>"""
+    return (
+        f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;font-weight:600;'
+        f'letter-spacing:0.12em;color:{color};background:{bg};border:{border};'
+        f'padding:3px 10px;white-space:nowrap;">{label}</span>'
+    )
 
 
 # ─────────────────────────────────────────────
 # 9. DASHBOARD GRID
 # ─────────────────────────────────────────────
 if not selected_tickers:
-    st.markdown("""
-    <div style="
-        text-align: center;
-        padding: 4rem 0;
-        font-family: 'IBM Plex Mono', monospace;
-        color: #2a3340;
-        font-size: 13px;
-        letter-spacing: 0.1em;
-    ">NO SYMBOLS ACTIVE — SELECT FROM COMMAND BAR</div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        '<div style="text-align:center;padding:4rem 0;font-family:\'IBM Plex Mono\',monospace;color:#2a3340;font-size:13px;letter-spacing:0.1em;">NO SYMBOLS ACTIVE &#8212; SELECT FROM COMMAND BAR</div>',
+        unsafe_allow_html=True
+    )
 else:
     cols = st.columns(2)
 
@@ -576,41 +512,18 @@ else:
             company = COMPANY_NAMES.get(ticker, ticker)
 
             # ── Panel header ─────────────────────
-            st.markdown(f"""
-            <div style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                background: #10141a;
-                border: 1px solid #1e2530;
-                border-bottom: 2px solid #00d4aa;
-                padding: 0.55rem 0.9rem;
-                margin-bottom: 0;
-            ">
-                <div>
-                    <span style="
-                        font-family: 'IBM Plex Mono', monospace;
-                        font-size: 15px;
-                        font-weight: 600;
-                        color: #00d4aa;
-                        letter-spacing: 0.06em;
-                    ">{ticker}</span>
-                    <span style="
-                        font-family: 'IBM Plex Mono', monospace;
-                        font-size: 10px;
-                        color: #5a6a7a;
-                        margin-left: 0.7rem;
-                        letter-spacing: 0.04em;
-                    ">{company.upper()}</span>
-                </div>
-                <span style="
-                    font-family: 'IBM Plex Mono', monospace;
-                    font-size: 9px;
-                    color: #2a3340;
-                    letter-spacing: 0.08em;
-                ">{timeframe}</span>
-            </div>
-            """, unsafe_allow_html=True)
+            panel_header = (
+                '<div style="display:flex;justify-content:space-between;align-items:center;'
+                'background:#10141a;border:1px solid #1e2530;border-bottom:2px solid #00d4aa;'
+                'padding:0.55rem 0.9rem;margin-bottom:0;">'
+                '<div>'
+                f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:15px;font-weight:600;color:#00d4aa;letter-spacing:0.06em;">{ticker}</span>'
+                f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:#5a6a7a;margin-left:0.7rem;letter-spacing:0.04em;">{company.upper()}</span>'
+                '</div>'
+                f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:9px;color:#2a3340;letter-spacing:0.08em;">{timeframe}</span>'
+                '</div>'
+            )
+            st.markdown(panel_header, unsafe_allow_html=True)
 
             df = fetch_market_data(ticker, timeframe)
 
@@ -738,17 +651,7 @@ else:
                 st.markdown(footer_html, unsafe_allow_html=True)
 
             else:
-                st.markdown(f"""
-                <div style="
-                    background: #10141a;
-                    border: 1px solid #1e2530;
-                    border-top: none;
-                    padding: 2rem;
-                    text-align: center;
-                    font-family: 'IBM Plex Mono', monospace;
-                    font-size: 11px;
-                    color: #2a3340;
-                    letter-spacing: 0.1em;
-                    margin-bottom: 1.2rem;
-                ">AWAITING TELEMETRY  ·  {ticker}</div>
-                """, unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="background:#10141a;border:1px solid #1e2530;border-top:none;padding:2rem;text-align:center;font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:#2a3340;letter-spacing:0.1em;margin-bottom:1.2rem;">AWAITING TELEMETRY &nbsp;·&nbsp; {ticker}</div>',
+                    unsafe_allow_html=True
+                )
