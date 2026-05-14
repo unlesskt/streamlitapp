@@ -49,22 +49,41 @@ def init_connections():
 
 container, gemini_model, openrouter_client = init_connections()
 
+# Massive searchable database of Equities, ETFs, and Crypto
 COMPANY_NAMES = {
-    "AAPL": "Apple Inc.", "MSFT": "Microsoft Corp.", "GOOGL": "Alphabet Inc.",
-    "AMZN": "Amazon.com Inc.", "NVDA": "NVIDIA Corp.", "META": "Meta Platforms Inc.",
-    "TSLA": "Tesla Inc.", "CRWD": "CrowdStrike Holdings", "ORCL": "Oracle Corp.",
-    "CRM": "Salesforce Inc.", "AMD": "Advanced Micro Devices", "TSM": "Taiwan Semiconductor",
-    "ASML": "ASML Holding NV", "JPM": "JPMorgan Chase & Co.", "V": "Visa Inc.",
-    "MA": "Mastercard Inc.", "BAC": "Bank of America Corp.", "GS": "Goldman Sachs",
-    "AXP": "American Express", "LLY": "Eli Lilly and Co.", "UNH": "UnitedHealth Group",
-    "JNJ": "Johnson & Johnson", "PFE": "Pfizer Inc.", "ABBV": "AbbVie Inc.",
-    "MRK": "Merck & Co.", "WMT": "Walmart Inc.", "COST": "Costco Wholesale",
-    "PG": "Procter & Gamble", "KO": "Coca-Cola Co.", "PEP": "PepsiCo Inc.",
-    "SBUX": "Starbucks Corp.", "MCD": "McDonald's Corp.", "NKE": "NIKE Inc.",
-    "NFLX": "Netflix Inc.", "XOM": "Exxon Mobil Corp.", "CVX": "Chevron Corp.",
-    "CAT": "Caterpillar Inc.", "GE": "General Electric Co.", "T": "AT&T Inc.",
-    "VZ": "Verizon Communications"
+    # Tech & Semiconductors
+    "AAPL": "Apple", "MSFT": "Microsoft", "GOOGL": "Alphabet (Google)",
+    "AMZN": "Amazon", "NVDA": "NVIDIA", "META": "Meta (Facebook)",
+    "TSLA": "Tesla", "AMD": "Advanced Micro Devices", "TSM": "Taiwan Semi",
+    "ASML": "ASML Holding", "INTC": "Intel", "CRM": "Salesforce",
+    "ORCL": "Oracle", "CSCO": "Cisco", "AVGO": "Broadcom",
+    "PLTR": "Palantir Technologies", "SNOW": "Snowflake", "CRWD": "CrowdStrike",
+    
+    # Financials
+    "JPM": "JPMorgan Chase", "BAC": "Bank of America", "GS": "Goldman Sachs",
+    "MS": "Morgan Stanley", "V": "Visa", "MA": "Mastercard", "AXP": "American Express",
+    
+    # Healthcare & Consumer
+    "LLY": "Eli Lilly", "UNH": "UnitedHealth", "JNJ": "Johnson & Johnson",
+    "NVO": "Novo Nordisk", "PFE": "Pfizer", "WMT": "Walmart", 
+    "COST": "Costco", "PG": "Procter & Gamble", "KO": "Coca-Cola",
+    "PEP": "PepsiCo", "MCD": "McDonald's", "NKE": "Nike", "DIS": "Disney",
+    
+    # Energy & Industrials
+    "XOM": "Exxon Mobil", "CVX": "Chevron", "CAT": "Caterpillar", 
+    "GE": "General Electric", "BA": "Boeing", "LMT": "Lockheed Martin",
+    
+    # Major ETFs (Market Trackers)
+    "SPY": "S&P 500 ETF", "QQQ": "NASDAQ 100 ETF", "DIA": "Dow Jones ETF",
+    "IWM": "Russell 2000 ETF", "VTI": "Vanguard Total Stock Market",
+    
+    # Cryptocurrency
+    "BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "SOL-USD": "Solana"
 }
+
+# Format the list so the user can search by typing the company name
+SEARCHABLE_LIST = [f"{ticker} | {name}" for ticker, name in COMPANY_NAMES.items()]
+
 
 # ─────────────────────────────────────────────
 # 3. TERMINAL HEADER
@@ -84,13 +103,14 @@ st.divider()
 # ─────────────────────────────────────────────
 # 4. COMMAND BAR & GLOBALS
 # ─────────────────────────────────────────────
-# Replaced glitchy multiselect with a robust, comma-separated terminal command line
-raw_tickers = st.text_input(
-    "Terminal Command: Enter Symbols (Comma Separated)", 
-    value="NVDA, TSLA",
-    placeholder="e.g. NVDA, TSLA, AAPL, PLTR, BTC-USD"
+selected_displays = st.multiselect(
+    "Search & Add Assets (Type company name or ticker)",
+    sorted(SEARCHABLE_LIST),
+    default=["NVDA | NVIDIA", "TSLA | Tesla"]
 )
-selected_tickers = [ticker.strip().upper() for ticker in raw_tickers.split(",") if ticker.strip()]
+
+# Extract just the ticker symbol (e.g., "AAPL" from "AAPL | Apple")
+selected_tickers = [item.split(" | ")[0] for item in selected_displays]
 
 row2_col1, row2_col2, row2_col3 = st.columns([3, 3, 1])
 with row2_col1:
@@ -113,7 +133,6 @@ with row2_col3:
     if st.button("↺ Refresh", use_container_width=True):
         st.rerun()
 
-# Hardcoded standard parameters
 fast_ma, slow_ma = 20, 50
 bb_window, bb_std = 20, 2.0
 chart_height = 400
@@ -226,16 +245,16 @@ CHART_LAYOUT = dict(
 # 8. DASHBOARD GRID
 # ─────────────────────────────────────────────
 if not selected_tickers:
-    st.info("No symbols active. Please enter assets in the command line above.")
+    st.info("No symbols active. Please search and select assets from the command bar above.")
 else:
     n_cols = 1 if len(selected_tickers) == 1 else 2
     cols = st.columns(n_cols)
 
     for index, ticker in enumerate(selected_tickers):
         with cols[index % 2]:
-            company = COMPANY_NAMES.get(ticker, "")
-            header_text = f"{ticker} | {company}" if company else ticker
-            st.subheader(header_text)
+            company = COMPANY_NAMES.get(ticker, ticker)
+            
+            st.subheader(f"{ticker} | {company}")
 
             df = fetch_market_data(ticker, timeframe)
 
