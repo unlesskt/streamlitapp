@@ -63,7 +63,7 @@ COMPANY_NAMES = {
     "SBUX": "Starbucks Corp.", "MCD": "McDonald's Corp.", "NKE": "NIKE Inc.",
     "NFLX": "Netflix Inc.", "XOM": "Exxon Mobil Corp.", "CVX": "Chevron Corp.",
     "CAT": "Caterpillar Inc.", "GE": "General Electric Co.", "T": "AT&T Inc.",
-    "VZ": "Verizon Communications", "FSM": "FSM", "INDI": "INDI"
+    "VZ": "Verizon Communications"
 }
 
 # ─────────────────────────────────────────────
@@ -84,11 +84,13 @@ st.divider()
 # ─────────────────────────────────────────────
 # 4. COMMAND BAR & GLOBALS
 # ─────────────────────────────────────────────
-selected_tickers = st.multiselect(
-    "Active Symbols",
-    sorted(COMPANY_NAMES.keys()),
-    default=["NVDA", "TSLA"]
+# Replaced glitchy multiselect with a robust, comma-separated terminal command line
+raw_tickers = st.text_input(
+    "Terminal Command: Enter Symbols (Comma Separated)", 
+    value="NVDA, TSLA",
+    placeholder="e.g. NVDA, TSLA, AAPL, PLTR, BTC-USD"
 )
+selected_tickers = [ticker.strip().upper() for ticker in raw_tickers.split(",") if ticker.strip()]
 
 row2_col1, row2_col2, row2_col3 = st.columns([3, 3, 1])
 with row2_col1:
@@ -152,7 +154,6 @@ st.divider()
 @st.cache_data(ttl=60)
 def fetch_market_data(symbol, tf):
     if "Ticks" in tf:
-        # Massive limit increase to capture multiple days/weeks of raw tick flow
         query = f"SELECT * FROM c WHERE c.ticker = '{symbol}' ORDER BY c.timestamp DESC OFFSET 0 LIMIT 25000"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
         if not items: return pd.DataFrame()
@@ -162,14 +163,12 @@ def fetch_market_data(symbol, tf):
         df = df.set_index('timestamp').sort_index()
         df = df[['open', 'high', 'low', 'price']].rename(columns={'price': 'close'})
         
-        # If user explicitly wants resampled candles from the DB
         if "Resampled" in tf:
             resample_map = {"Hourly": "h", "Daily": "D", "Weekly": "W"}
             freq = next((v for k, v in resample_map.items() if k in tf), None)
             if freq:
                 df = df.resample(freq).agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last'}).dropna()
         else:
-            # PURE RAW TICKS (Keep as 1D array of close prices)
             df = df[['close']]
             
         return df
@@ -227,16 +226,16 @@ CHART_LAYOUT = dict(
 # 8. DASHBOARD GRID
 # ─────────────────────────────────────────────
 if not selected_tickers:
-    st.info("No symbols active. Please select assets from the command bar above.")
+    st.info("No symbols active. Please enter assets in the command line above.")
 else:
     n_cols = 1 if len(selected_tickers) == 1 else 2
     cols = st.columns(n_cols)
 
     for index, ticker in enumerate(selected_tickers):
         with cols[index % 2]:
-            company = COMPANY_NAMES.get(ticker, ticker)
-            
-            st.subheader(f"{ticker} | {company}")
+            company = COMPANY_NAMES.get(ticker, "")
+            header_text = f"{ticker} | {company}" if company else ticker
+            st.subheader(header_text)
 
             df = fetch_market_data(ticker, timeframe)
 
@@ -249,7 +248,6 @@ else:
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Last", f"${latest['close']:,.2f}", f"{'+' if delta_v >= 0 else ''}{delta_v:.2f} ({delta_p:+.2f}%)")
                 
-                # Raw ticks don't have High/Low columns built in, so we dynamically calculate the period highs/lows
                 period_high = df['high'].max() if 'high' in df.columns else df['close'].max()
                 period_low = df['low'].min() if 'low' in df.columns else df['close'].min()
                 
@@ -272,7 +270,6 @@ else:
                     row_heights=[0.75, 0.25] if has_vol else [1.0]
                 )
 
-                # High-performance plotting: Scattergl for Raw Ticks, Candlesticks for Resampled/Weekly
                 if is_raw:
                     fig.add_trace(go.Scattergl(
                         x=df.index, y=df['close'], 
