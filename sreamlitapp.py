@@ -14,14 +14,12 @@ import json
 # ─────────────────────────────────────────────
 # 1. PAGE CONFIGURATION
 # ─────────────────────────────────────────────
-# We use Streamlit's native engine. No broken CSS hacks.
 st.set_page_config(
     page_title="Quantitative Terminal",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Only hide the top header space, nothing else. Safe CSS.
 st.markdown("""
 <style>
     .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
@@ -84,36 +82,39 @@ with h_col2:
 st.divider()
 
 # ─────────────────────────────────────────────
-# 4. COMMAND BAR
+# 4. COMMAND BAR & GLOBALS
 # ─────────────────────────────────────────────
 selected_tickers = st.multiselect(
-    "Active Symbols (Select up to 6)",
+    "Active Symbols",
     sorted(COMPANY_NAMES.keys()),
-    default=["NVDA", "TSLA"],
-    max_selections=6,
+    default=["NVDA", "TSLA"]
 )
 
-row2_col1, row2_col2, row2_col3, row2_col4 = st.columns([2, 2, 2, 1])
+row2_col1, row2_col2, row2_col3 = st.columns([3, 3, 1])
 with row2_col1:
-    timeframe = st.selectbox("Resolution", ["Intraday (15m)", "Daily (1D)", "Weekly (1W)", "Raw Ticks (Cosmos DB)"], index=1)
+    timeframe = st.selectbox(
+        "Resolution", 
+        [
+            "Raw Ticks (Unaggregated Stream)",
+            "Resampled Ticks (Hourly)", 
+            "Resampled Ticks (Daily)", 
+            "Resampled Ticks (Weekly)",
+            "Weekly (yfinance)"
+        ],
+        index=0
+    )
 with row2_col2:
-    analysis_mode = st.selectbox("Overlay", ["None", "Moving Averages", "Bollinger Bands"])
+    analysis_mode = st.selectbox("Overlay", ["None", "Moving Averages", "Bollinger Bands"], index=1)
 with row2_col3:
-    chart_height = st.select_slider("Chart Height", options=[300, 350, 400, 450, 500, 550, 600], value=400)
-with row2_col4:
-    st.write("") # Spacer
-    st.write("") # Spacer
+    st.write("")
+    st.write("")
     if st.button("↺ Refresh", use_container_width=True):
         st.rerun()
 
-with st.expander("Advanced Parameters"):
-    param_col1, param_col2 = st.columns(2)
-    with param_col1:
-        fast_ma = st.number_input("Fast MA Period", value=20)
-        slow_ma = st.number_input("Slow MA Period", value=50)
-    with param_col2:
-        bb_window = st.number_input("Bollinger Window", value=20)
-        bb_std    = st.number_input("Bollinger Std Dev", value=2.0, step=0.5)
+# Hardcoded standard parameters
+fast_ma, slow_ma = 20, 50
+bb_window, bb_std = 20, 2.0
+chart_height = 400
 
 st.divider()
 
@@ -150,22 +151,31 @@ st.divider()
 # ─────────────────────────────────────────────
 @st.cache_data(ttl=60)
 def fetch_market_data(symbol, tf):
-    if tf == "Raw Ticks (Cosmos DB)":
-        query = f"SELECT * FROM c WHERE c.ticker = '{symbol}' ORDER BY c.timestamp DESC OFFSET 0 LIMIT 1000"
+    if "Ticks" in tf:
+        # Massive limit increase to capture multiple days/weeks of raw tick flow
+        query = f"SELECT * FROM c WHERE c.ticker = '{symbol}' ORDER BY c.timestamp DESC OFFSET 0 LIMIT 25000"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
         if not items: return pd.DataFrame()
+        
         df = pd.DataFrame(items)
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = df.set_index('timestamp').sort_index()
-        return df[['open', 'high', 'low', 'price']].rename(columns={'price': 'close'})
-    else:
-        mapping = {
-            "Intraday (15m)": {"period": "5d",  "interval": "15m"},
-            "Daily (1D)":     {"period": "1y",  "interval": "1d"},
-            "Weekly (1W)":    {"period": "5y",  "interval": "1wk"},
-        }
-        config = mapping[tf]
-        df = yf.Ticker(symbol).history(period=config["period"], interval=config["interval"])
+        df = df[['open', 'high', 'low', 'price']].rename(columns={'price': 'close'})
+        
+        # If user explicitly wants resampled candles from the DB
+        if "Resampled" in tf:
+            resample_map = {"Hourly": "h", "Daily": "D", "Weekly": "W"}
+            freq = next((v for k, v in resample_map.items() if k in tf), None)
+            if freq:
+                df = df.resample(freq).agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last'}).dropna()
+        else:
+            # PURE RAW TICKS (Keep as 1D array of close prices)
+            df = df[['close']]
+            
+        return df
+        
+    elif tf == "Weekly (yfinance)":
+        df = yf.Ticker(symbol).history(period="5y", interval="1wk")
         if df.empty: return pd.DataFrame()
         df = df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close"})
         df.index = df.index.tz_convert('UTC').tz_localize(None)
@@ -238,24 +248,47 @@ else:
 
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Last", f"${latest['close']:,.2f}", f"{'+' if delta_v >= 0 else ''}{delta_v:.2f} ({delta_p:+.2f}%)")
-                c2.metric("Period High",  f"${latest['high']:,.2f}")
-                c3.metric("Period Low",   f"${latest['low']:,.2f}")
+                
+                # Raw ticks don't have High/Low columns built in, so we dynamically calculate the period highs/lows
+                period_high = df['high'].max() if 'high' in df.columns else df['close'].max()
+                period_low = df['low'].min() if 'low' in df.columns else df['close'].min()
+                
+                c2.metric("Period High",  f"${period_high:,.2f}")
+                c3.metric("Period Low",   f"${period_low:,.2f}")
 
                 df['SMA_BB']     = df['close'].rolling(window=bb_window).mean()
                 df['STD_BB']     = df['close'].rolling(window=bb_window).std()
                 df['Upper_Band'] = df['SMA_BB'] + (df['STD_BB'] * bb_std)
                 df['Lower_Band'] = df['SMA_BB'] - (df['STD_BB'] * bb_std)
 
-                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
+                has_vol = 'Volume' in df.columns
+                is_raw = timeframe == "Raw Ticks (Unaggregated Stream)"
+                
+                fig = make_subplots(
+                    rows=2 if has_vol else 1, 
+                    cols=1, 
+                    shared_xaxes=True, 
+                    vertical_spacing=0.03, 
+                    row_heights=[0.75, 0.25] if has_vol else [1.0]
+                )
 
-                fig.add_trace(go.Candlestick(
-                    x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'],
-                    name="Price", increasing_line_color='#26a69a', decreasing_line_color='#ef5350'
-                ), row=1, col=1)
+                # High-performance plotting: Scattergl for Raw Ticks, Candlesticks for Resampled/Weekly
+                if is_raw:
+                    fig.add_trace(go.Scattergl(
+                        x=df.index, y=df['close'], 
+                        mode='lines', line=dict(color='#00d4aa', width=1.5), 
+                        name="Tick Price"
+                    ), row=1, col=1)
+                else:
+                    fig.add_trace(go.Candlestick(
+                        x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'],
+                        name="Price", increasing_line_color='#26a69a', decreasing_line_color='#ef5350'
+                    ), row=1, col=1)
 
-                if 'Volume' in df.columns:
+                if has_vol:
                     bar_colors = ['#26a69a' if row['close'] >= row['open'] else '#ef5350' for _, row in df.iterrows()]
                     fig.add_trace(go.Bar(x=df.index, y=df['Volume'], marker_color=bar_colors, opacity=0.7, name="Volume"), row=2, col=1)
+                    fig.update_yaxes(showgrid=False, side="right", row=2, col=1)
 
                 if analysis_mode == "Moving Averages":
                     df['SMA_Fast'] = df['close'].rolling(window=fast_ma).mean()
@@ -268,10 +301,6 @@ else:
 
                 layout = {**CHART_LAYOUT, "height": chart_height}
                 fig.update_layout(**layout)
-                
-                # Turn off volume background grid lines for a cleaner look
-                fig.update_yaxes(showgrid=False, side="right", row=2, col=1)
-
                 st.plotly_chart(fig, use_container_width=True)
 
                 # Sentiment block
