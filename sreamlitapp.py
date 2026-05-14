@@ -63,7 +63,7 @@ COMPANY_NAMES = {
     "SBUX": "Starbucks Corp.", "MCD": "McDonald's Corp.", "NKE": "NIKE Inc.",
     "NFLX": "Netflix Inc.", "XOM": "Exxon Mobil Corp.", "CVX": "Chevron Corp.",
     "CAT": "Caterpillar Inc.", "GE": "General Electric Co.", "T": "AT&T Inc.",
-    "VZ": "Verizon Communications"
+    "VZ": "Verizon Communications", "FSM": "FSM", "INDI": "INDI"
 }
 
 # ─────────────────────────────────────────────
